@@ -49,7 +49,9 @@ fi
 if [ "$TESTSUITE" ]; then
     TESTSUITEFLAGS=""
     if [[ ! -z $TESTSUITE_KW ]]; then
-        TESTSUITEFLAGS="-k $TESTSUITE_KW"
+        for i in $(echo $TESTSUITE_KW| tr "||" "\n"); do
+            TESTSUITEFLAGS="-k $i "
+        done
     fi
 
     if [ "$TESTSUITE" = "system-test" ]; then
