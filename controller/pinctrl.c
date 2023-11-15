@@ -4778,6 +4778,15 @@ struct ip_mcast_snoop_state {
     struct ip_mcast_snoop_cfg cfg;
 };
 
+/* Holds protocol version information */
+struct mcast_group_version {
+    struct hmap_node hmap_node;
+    uint8_t proto_version;
+    bool handled;
+};
+
+static struct hmap mcast_version_map;
+
 /* Only default vlan supported for now. */
 #define IP_MCAST_VLAN 1
 
@@ -5113,6 +5122,7 @@ ip_mcast_snoop_init(void)
     hmap_init(&mcast_snoop_map);
     ovs_list_init(&mcast_query_list);
     hmap_init(&mcast_cfg_map);
+    hmap_init(&mcast_version_map);
 }
 
 static void
@@ -5131,6 +5141,7 @@ ip_mcast_snoop_destroy(void)
     HMAP_FOR_EACH_POP (ip_ms_state, hmap_node, &mcast_cfg_map) {
         free(ip_ms_state);
     }
+    hmap_destroy(&mcast_version_map);
 }
 
 static void
@@ -5431,6 +5442,25 @@ pinctrl_ip_mcast_handle_igmp(struct rconn *swconn,
             mcast_snooping_add_report(ip_ms->ms, pkt_in, IP_MCAST_VLAN,
                                       port_key_data);
         break;
+    }
+
+    if ((ntohs(ip_flow->tp_src) == (IGMP_HOST_MEMBERSHIP_REPORT ||
+                                    IGMPV2_HOST_MEMBERSHIP_REPORT ||
+                                    IGMPV3_HOST_MEMBERSHIP_REPORT)) &&
+                                     group_change) {
+        struct mcast_group_version version;
+        version.proto_version = ntohs(ip_flow->tp_src);
+        version.handled = false;
+        uint32_t hash = hash_2words(ip4, in_port_key);
+        hmap_insert(&mcast_version_map, &version.hmap_node, hash);
+
+        /* remove data that been handled by main thread */
+        struct mcast_group_version *old_versions;
+        HMAP_FOR_EACH_SAFE (old_versions, hmap_node, &mcast_version_map) {
+            if (old_versions->handled == true) {
+                hmap_remove(&mcast_version_map, &old_versions->hmap_node);
+            }
+        }
     }
     ovs_rwlock_unlock(&ip_ms->ms->rwlock);
 
